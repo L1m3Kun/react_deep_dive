@@ -30,7 +30,7 @@ const DeeperComponent = memo((props: DeeperProps) => {
 
 
 export default function App() {
-    const [, setCounter] = useState(0);
+    const [counter, setCounter] = useState(0);
 
     function handleClick() {
         setCounter((prev) => prev+1);
