@@ -19,7 +19,7 @@
         |:---:|:---:|:---:|
         |false|Boolean|대표적인 falsy|
         |0, -0, 0n, 0x0n|Number, BigInt|0은 부호나 소수점 유무에 상관없이 falsy|
-        |NaN|Number|Not a Number === Nuber가 아님 -> falsy|
+        |NaN|Number|Not a Number === Number가 아님 -> falsy|
         |'',"",``|String|공백이 없는 빈 문자열 -> falsy|
         |null|null|null == falsy|
         |undefined|undefined|undefined == falsy|
