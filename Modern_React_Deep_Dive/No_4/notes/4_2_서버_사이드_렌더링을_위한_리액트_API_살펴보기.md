@@ -253,10 +253,182 @@ ReactDOM.hydrate(<App />, rootElement)
         <div suppressHydrationWarning>{new Date().getTime()}</div>
         ```
 
-## 서버 사이드 렌더링 예제 프로젝트
+## [서버 사이드 렌더링 예제 프로젝트](../examples/ssr-example/)
 - 서버 사이드 렌더링 내부 함수들이 어떻게 실행되는지 보기위한 예제이며, 실제 프로덕션에서 사용하기엔 무리가 있다.
 - 직접 구현하는 것보다 Next.js같은 프레임워크를 사용하는 것이 권장된다.
 - `renderToStaticMarkup`과 `renderToStaticNodeStream`에 대해선 다루지 않음(자바스크립트 이벤트 핸들러가 필요하기 때문)
 
+### [index.tsx](../SSR_Example_PJT/index.tsx)
+- 애플리케이션의 시작점
+- `hydrate`가 포함
+- 서버로 부터 받은 HTML을 hydrate를 통해 완성된 웹 애플리케이션으로 만드는 것
+- `fetchTodo`를 호출해 필요한 데이터를 주입
+- `hydrate`의 역할: 서버에서 완성한 HTML과 대상 HTML을 비교하여 동일한지 검사
+
+### [App.tsx](../SSR_Example_PJT/components/App.tsx)
+- todos를 props로 받는데 이 props는 서버에서 요청하는 todos를 받음
+- 사용자가 만드는 리액트 애플리케이션의 시작점
+
+
+### [Todo.tsx](../SSR_Example_PJT/components/Todo.tsx)
+- App.tsx의 자식 컴포넌트, porps.todo를 받아 렌더링
+
+### [index.html](../SSR_Example_PJT/index.html)
+- 서버 사이드 렌더링을 수행할 때 기본이 되는 HTML
+- 이 HTML을 기반으로 리액트 애플리케이션이 완성
+
+> __placeholder__
+- 서버에서 리액트 컴포넌트를 기반으로 만드는 HTML 코드를 삽입하는 자리(단순한 방식 처럼 보이지만 실제로 단순하지 않음)
+
+> unpkg
+- npm라이브러리를 CDN으로 제공하는 웹 서비스
+- react와 react-dom을 추가해 둠
+- 실제와 다르게 webpack과 같은 도구로 번들링하는 것은 생략
+
+> browser.js
+- 클라이언트 리액트 애플리케이션 코드를 번들링했을 때 제공되는 리액트 자바스크립트 코드
+- __placeholder__에 먼저 리액트에서 만든 HTML이 삽입되면 이후에 이 코드가 실행되면서 필요한 자바스크립트 이벤트 핸들러가 붙음
+
+### [server.ts](../SSR_Example_PJT/server.ts)
+- 서버에서 동작하는 파일
+- 사용자의 요청 주소에 따라 어떠한 리소스를 내려 줄지 결정하는 역할
+- 서버 사이드 렌더링을 위해 이 파일에서 리액트 트리를 만드는 역할도 담당
+> createServer
+- http 모듈을 이용해 간단한 서버를 만들 수 있는 Node.js 기본 라이브러리(3000번 포트를 이용하는 http 서버를 만든다)
+```jsx
+// 생략...
+// 이후에 다룬다
+
+function main() {
+    createServer(serverHandler).listen(PORT, () => {
+        console.log(`Server has been started ${PORT}...`)   // eslint-disable-line no-console
+    })
+}
+```
+
+> serverHandler
+- `createServer`로 넘겨주는 인수, HTTP 서버가 라우트(주소)별로 어떻게 작동할지 정의하는 함수
+```tsx
+async function serverHandler(req: IncomingMessage, res: ServerResponse){
+    const {url} = req
+
+    switch (url) {
+        // ...
+
+        default : {
+            res.statusCode = 404
+            res.end('404 Not Found')
+        }
+    }
+}
+```
+
+> server.ts의 루트 라우터 `/`
+- 사용자가 `/`로 접근했을 때 실행되는 코드
+```tsx
+const result = await fetchTodo()
+const rootElement = createElement(
+    'div',
+    {id: 'root'},
+    createElement(App, {todo:result}),
+)
+
+const renderRequst = renderToString(rootElement)
+
+const htmlResult = html.replace('__placeholder__', renderResult)
+
+res.setHeader('Content-Type', 'text/html')
+res.write(htmlResult)
+res.end()
+return
+```
+
+> server.ts의 `/stream` 라우터
+- rootElement를 만드는 과정까지는 동일
+```tsx
+async function serverHandler(req: IncomingMessage, res: ServerResponse) {
+    const { url } = req
+
+    switch (url) {
+        // renderToNodeStream을 사용한 서버 사이들 렌더링
+        case '/stream' : {
+            res.setHeader('Content-Type', 'text/html')
+            res.write(indexFront)
+
+            const result = await fetchTodo()
+            const rootElement = createElement(
+                'div',
+                { id: 'root' },
+                createElement(App, { todos: result })
+            )
+
+            const stream = renderToNodeStream(rootElement)
+            stream.pipe(res, {end:false})
+            stream.on('end', () => {
+                res.write(indexEnd)
+                res.end()
+            })
+            return            
+        }
+    }
+}
+```
+>  `res.write(indexFront)`와 `res.write(indexEnd)`, 그 사이 `renderNodeStream`
+1. index.html의 `__placeholder__`부분을  indexFront와 indexEnd으로 나누어 절반을 먼저 응답을 통해 기록하고 `renderToNodeStream`을 통해 나머지 부분을 스트림 형태로 생성한다.
+2. 스트림을 활용했기에, `pipe`와 `res`에 걸어두고 청크가 생성될 때마다 `res`에 기록
+3. 스트림이 종료되면 index.html의 나머지 반쪽을 붙여 최종 결과물을 브라우저에 제공
+4. 결과물은 `renderToString`과 `renderToNodeStream`이 동일(**서버에서만 차이남**)
+5. 차이를 보기 위해 실행 후 브라우저 콘솔창에 다음 코드 실행
+```js
+const main = async () => {
+    const response = await fetch('http://localhost:3000/stream')
+    const reader = response.body.getReader()
+
+    while (true) {
+        const {value, done} = await reader.read()
+        const str = new TextDecoder().decode(value)
+        if (done) { break}
+        console.log(`=====================================`)
+        console.log(str)
+    }
+
+    console.log('Response fully received')
+}
+main()
+```
+
+> 그 외 라우터들
+
+```tsx
+switch (url){
+    // 브라우저에 제공되는 리액트 코드(웹팩이 생성)
+    case '/browser.js' : {
+        res.setHeader('Content-Type', 'application/javascript')
+        createReadStream(`./dist/browser.js`).pipe(res)
+        return
+    }
+
+    // 위 파일의 소스맵(디버깅 용도)
+    case '/browser.js.map' : {
+        res.setHeader('Content-Type', 'application/javascript')
+        createReadStream(`./dist/browser.js.map`).pipe(res)
+        return
+    }
+}
+```
+
+### [webpack.config.js](../SSR_Example_PJT/webpack.config.js)
+- 웹팩 설정 파일
+- config 배열은 각 브라우저 코드와 서버 코드 번들링하는 방식 선언
+> 설정
+1. `entry`를 선언해 시작점을 선언
+2. 필요한 팡리과 그에 맞는 `loader` 제공
+3. 번들링에서 제외할 내용을 선언 
+4. `output`으로 보냄
+
+### fetchTodo가 두번 일어나지 않나?
+- 서버사이드 렌더링에만 초첨을 두어 구현했기에 해당 처리가 생략되었다
+- Next.js의 경우 fetchTodo를 getServerSideProps라는 예약 함수에서 딱 한 번만 호출
+- 호출 결과를 HTML에 포함시켜 HTML 파싱이 끝나면 자연스럽게 window 객체에서 접근할 수 있도록 설정
 
 ## 정리
