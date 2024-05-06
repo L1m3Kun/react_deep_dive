@@ -96,7 +96,7 @@ const result = ReactDOMServer.renderToStaticMarkup(
 - ReadableStream 자체는 브라우저에서도 사용 가능하지만, ReadableStream을 만드는 과정이 브라우저에서 실행 불가능
 ###  `renderToNodeStream`이 필요한 이유
 > 스트림?
-- 큰 데이터를 다룰 때 데이털르 청크(chunk, 작은 단위)로 분할해 조금씩 가져오는 방식
+- 큰 데이터를 다룰 때 데이터를 청크(chunk, 작은 단위)로 분할해 조금씩 가져오는 방식
 
 > renderToString으로 생성해야 하는 HTML이 매우 크다면?
 - 큰 문자열을 한 번에 메모리에 올려두고 응답을 수행해야 해서 Node.js가 실행되는 서버에 큰 부담이 될 수 있음
@@ -432,3 +432,65 @@ switch (url){
 - 호출 결과를 HTML에 포함시켜 HTML 파싱이 끝나면 자연스럽게 window 객체에서 접근할 수 있도록 설정
 
 ## 정리
+
+### renderToString
+- 인수로 넘겨받은 리액트 컴포넌트를 렌더링해 HTML 문자열로 반환
+- 가장 기초적인 서버 사이드 렌더링 API
+- **최초 페이지를 HTML로 먼저 렌더링하는데 그 역할을 하는 함수(초기 렌더링에서 뛰어난 성능)**
+
+### renderToStaticMarkup
+- 블로그 글이나 상품의 약관 정보와 같이 아무런 브라우저 액션이 없는 정적인 내용만 필요한 경우에 유용
+- `data-reatroot`와 같은 리액트에서만 사용하는 추가적인 DOM 속성을 만들지 않는다는 점(브라우저 API 사용 불가, `hydrate` 적용 불가)
+
+### renderToNodeStream
+- Node.js에서만 사용할 수 있는 `stream`기반 서버 사이드 렌더링 API
+- 결과물로 `ReadableStream`을 출력
+- `renderToString`과 같은 형태로 나오지만, 처리하는 과정에서 `chunk`라는 단위로 나눠 하나씩 렌더링
+
+> `renderToNodeStream`이 필요한 이유
+- 큰 데이터를 다룰 때 데이터를 청크 단위로 분할해 조금씩 가져와 순처적으로 처리할 수 있음
+- 렌더링 시간 단축
+- `Next.js` 등 리액트 서버 사이드 렌더링 프레임워크는 모두 `renderToNodeStream`을 채택
+
+### renderToStaticNodeStream
+- 브라우저 API와 리액트 속성을 제공하지 않는 `renderToNodeStream` 
+- 순수 HTML 결과물이 필요할 때 사용
+
+### hydrate
+- `renderToString`과 `renderToNodeStream`으로 생성된 HTML 콘턴츠에 자바스크립트 핸들러나 이벤트를 붙이는 역할
+- 정적으로 생성된 HTML에 이벤트 핸들러를 붙여 완전한 웹페이지 결과물을 만듦
+- `ReactDOM.hydrate(<App />, rootElement)` 형태로 사용
+- rootElement 내부에는 <App />을 렌더링한 정보가 이미 포함되어야 hydrate를 실행시킬 수 있음(**두번째 인수 내부에는 renderToString 등으로 렌더링된 정적인 HTML 정보가 반드시 들어가 있어야함**)
+
+### [예제 프로젝트](../examples/ssr-example/)
+
+> __placeholder__
+- 서버에서 리액트 컴포넌트를 기반으로 만드는 HTML 코드를 삽입하는 자리(단순한 방식 처럼 보이지만 실제로 단순하지 않음)
+
+> unpkg
+- npm라이브러리를 CDN으로 제공하는 웹 서비스
+- react와 react-dom을 추가해 둠
+- 실제와 다르게 webpack과 같은 도구로 번들링하는 것은 생략
+
+> browser.js
+- 클라이언트 리액트 애플리케이션 코드를 번들링했을 때 제공되는 리액트 자바스크립트 코드
+- __placeholder__에 먼저 리액트에서 만든 HTML이 삽입되면 이후에 이 코드가 실행되면서 필요한 자바스크립트 이벤트 핸들러가 붙음
+
+> createServer
+- http 모듈을 이용해 간단한 서버를 만들 수 있는 Node.js 기본 라이브러리(3000번 포트를 이용하는 http 서버를 만든다)
+
+> server.ts의 `/stream` 라우터
+- rootElement를 만드는 과정까지는 동일
+
+>  `res.write(indexFront)`와 `res.write(indexEnd)`, 그 사이 `renderNodeStream`
+1. index.html의 `__placeholder__`부분을  indexFront와 indexEnd으로 나누어 절반을 먼저 응답을 통해 기록하고 `renderToNodeStream`을 통해 나머지 부분을 스트림 형태로 생성한다.
+2. 스트림을 활용했기에, `pipe`와 `res`에 걸어두고 청크가 생성될 때마다 `res`에 기록
+3. 스트림이 종료되면 index.html의 나머지 반쪽을 붙여 최종 결과물을 브라우저에 제공
+4. 결과물은 `renderToString`과 `renderToNodeStream`이 동일(**서버에서만 차이남**)
+5. 차이를 보기 위해 실행 후 브라우저 콘솔창에 다음 코드 실행
+
+
+> fetchTodo가 두번 일어나지 않나?
+- 서버사이드 렌더링에만 초첨을 두어 구현했기에 해당 처리가 생략되었다
+- Next.js의 경우 fetchTodo를 getServerSideProps라는 예약 함수에서 딱 한 번만 호출
+- 호출 결과를 HTML에 포함시켜 HTML 파싱이 끝나면 자연스럽게 window 객체에서 접근할 수 있도록 설정
