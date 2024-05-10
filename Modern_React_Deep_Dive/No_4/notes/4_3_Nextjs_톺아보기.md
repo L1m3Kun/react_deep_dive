@@ -446,9 +446,13 @@ export default function Post({ post }: { post: Post }){
 - 두 함수를 사용하면 빌드 시점에 미리 데이터를 불러온 다음에 정적인 HTML 페이지를 만들 수 있음
 
 ### getSeverSideProps
-- 서버에서 실행되는 함수이며 해당 함수가 있다면 무조건 페이지 진입 전에 이 함수를 실행
+- **서버에서 실행되는 함수**이며 해당 함수가 있다면 **무조건 페이지 진입 전에 이 함수를 실행**(컴포넌트 내 DOM에 추가하는 이벤트 핸들러 함수와 `useEffect`와 같은 몇가지를 제외하고는 서버에서 실행될 수 있다.)
 - 응답값에 따라 페이지의 루트 컴포넌트에 `porps`를 반환할 수도, 혹은 다른 페이지로 리다이렉트시킬 수도 있다.
 - Next.js는 꼭 서버에서 실행해야 하는 페이지로 분류해 빌드 시에도 서버용 자바스크립트 파일을 별도로 만듦
+- 서버사이드 렌더링은 getServerSideProps의 실행과 함께 이뤄지며, 이를 바탕으로 페이지를 렌더링하는 과정이 서버 사이드 렌더링임.
+- `__NEXT_DATA__`라는 id가 지정된 script는 getServerSideProps의 정보인 props와 현재 페이지 정보, query 등 Next.js 구동에 필요한 다양한 정보가 담겨있음
+- `props`의 결과를 HTML에 정적으로 작성해주기에 `JSON`으로 직렬화할 수 없는 값(`class`, `Date` 등)은 `props`로 제공할 수 없음
+
 ```tsx
 import type { GetServerSideProps } from 'next'
 
@@ -456,13 +460,508 @@ export default function Post({ post }: { post: Post }) {
     // 렌더링
 }
 
-export const getServer
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const {
+    query: { id = '' },
+  } = context       //  /post/[id]와 같은 경로에 있는 id 값을 context.query.id 로 접근 가능
+  const post =  await fetchPost(id.toString())
+  return {
+    props: {post},
+  } 
+}
+```
+```html
+<!-- 결과 -->
+<!DOCTYPE html>
+<html>
+  <!-- 생략 -->
+  <body>
+    <div id="__next" data-reactroot="">
+      <h1>안녕하세요</h1>
+      <p>반갑습니다.</p>
+      <script id="__NEXT_DATA__" type="application/json">
+        {
+          "props": {
+            "pageProps": {
+              "post": { "title": "안녕하세요", "contents": "반갑습니다." }
+            },
+            "__N_SSP": true
+          },
+          "page": "/post/[id]",
+          "query": { "id": "1" },
+          "buildId": "development",
+          "isFallback": false,
+          "gssp": true,
+          "scriptLoader": []
+        }
+      </script>
+    </div>
+    <!-- 생략 -->
+  </body>
+</html>
 ```
 
+> 리액트의 서버 사이드 렌더링 과정
+1. 서버에서 fetch 등으로 렌더링에 필요한 정보를 가져옴
+2. 1번에서 가져온 정보를 기반으로 HTML을 완성
+3. 2번의 정보를 클라이언트(브라우저)에 제공
+4. 3번의 정볼르 바탕으로 클라이언트에서 `hydrate`작업을 수행(DOM에 리액트 라이프 사이클과 이벤트 핸드러를 추가하는 작업)
+5. 4번 작업인 `hydrate`로 만든 리액트 컴포넌트 트리와 서버에서 만든 HTML이 다르다면 불일치 에러 발생
+6. 5번 작업도 1번과 마찬가지로 fetch 등을 이용해 정보를 가져와야 함
+
+> `__NEXT_DATA__` 정보는 왜 script 태그로 되어 있을까
+- 위 과정에서 1번과 6번 작업 사이에 fetch 시점에 따라 결과물의 불일치가 발생할 수 있으므로 1번에서 가져온 정보를 결과물인 HTML에 script 형태로 내려줌
+- 1번의 작업을 6번의 작업에서 반복하지 않아도 돼 불필요한 요청을 막을 수 있고, 시첨 차이로 인한 결과물 차이도 막을 수 있음
+- 6번에서 재요청하는 대신 `<script />`를 읽어도 1번의 데이터를 동일하게 가져올 수 있음
+- Next.js에서는 이 정보를 `window` 객체에도 저장
+
+> `getServerSideProps` 제약
+- `window`, `document`와 같이 브라우저에서만 접근할 수 있는 객체에는 접근할 수 없다
+- API 호출 시 `/api/some/path`와 같이 `protocol`과 `domain` 없이 fetch요청을 할 수 없다. 브라우저와 다르게 서버는 자신의 호스트를 유추할 수 없기 때문에 반드시 완전한 주소를 제공해야 `fetch`가 가능하다.
+- 여기서 발생한 에러는 `500.tsx`와 같이 미리 정의해 둔 에러 페이지로 리다이렉트된다.
+- 꼭 최초에 보여줘야하는 데이터가 아니라면 `getServerSideProps`보다는 클라이언트에서 호출하는 것이 유리하며, `getServerSideProps` 내부에서 실행하는 내용은 최대한 간결하게 작성하는 것이 좋다.
+
+> 조건에 따른 redirect
+- post를 조회하는데 실패하면 `/404` 페이지로 보낼 수 있도록 설정할 수 있음
+```tsx
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const {
+    query: { id= "" },
+  } = context
+  const post = await fetchPost(id.toString())
+
+  if (!post){
+    redirect: {
+      destination: "/404"
+    }
+  }
+  return {
+    props: { post },
+  }
+}
+```
+
+### getInitialProps
+- `getStaticProps`나 `getServerSideProps`가 나오기 전, 사용할 수 있는 유일한 페이지 데이터 불러오기 수단
+- 대부분의 경우 `getStaticProps`나 `getServerSideProps`를 사용하는 것을 권장(`getInitialProps`의 제한적인 사용 - _app.tsx, _error.tsx 등 Next.js 특성상 사용이 제한돼 있는 페이지에서만 사용하는 것이 좋음)
+
+> `getInitialProps`를 이용한 예시
+```jsx
+// 함수 컴포넌트
+import Link from 'next/link'
+
+export default function Todo({ todo }) {
+  return (
+    <>
+      <h1>{todo.title}</h1>
+      <ul>
+        <li>
+          <Link href="/todo/1">1번</Link>
+        </li>
+
+        <li>
+          <Link href="/todo/2">2번</Link>
+        </li>
+
+        <li>
+          <Link href="/todo/3">3번</Link>
+        </li>
+      </ul>
+    </>
+  )
+}
+
+Todo.getInitialProps = async (ctx) => {
+  const {
+    query: { id= "" },
+  } = ctx
+  const response = await fetch(
+    `https://jsonplaceholder.typicode.com/todos/${id}`,
+  )
+  const result = await response.json()
+  console.log('fetch Complete!')
+  return { todo: result }
+}
+
+// 클래스 컴포넌트
+export default class Todo extends React.Component {
+  static async getInitialProps() {
+    const {
+      query: { id: "" },
+    } = ctx
+    const response = await fetch(
+      `https://jsonplaceholder.typicode.com/todos/${id}`,
+    )
+    const result = await response.json()
+    console.log('fetch Complete!')
+    return {todo: result}
+  }
+
+  render(){
+    // ...
+  }
+}
+```
+
+> `console.log`를 활용한 `getInitialProps` 라우팅 위치 확인
+- 최초 페이지 진입 시: 서버 라우팅
+- 최초를 제외한 페이지 진입 시: 클라이언트 라우팅
+```jsx
+Todo.getInitialProps = async = (context) => {
+  const isServer = context.req
+  console.log(`${isServer ? '서버' : '클라이언트'}에서 실행됐습니다.`)
+  // do something...
+}
+```
+
+- context 객체 값
+  - `pathname`: 현재 경로명, 단 실제 경로가 아닌 페이지상 경로(예제- "/todo/[id]")
+  - `asPath`: 브라우저에 표시되는 실제 경로를 의미. pathname과 다르게 "/todo/1"과 같이 사용자에게 표시되는 주소가 보임
+  - `query`: URL에 존재하는 쿼리. `pathname`속 `[id]`도 포함, 쿼리 파라미터가 없어도 기본적으로 `{id: '1'}`과 같은 값이 제공. 만약 쿼리 문자열에 `/todo/2?foo=bar&id=3`처럼 추가되어 있다면 `{foo: 'bar', id: '2'}` 객체가 반환된다. `[id]`는 페이지의 `query`를 우선시하므로 반드시 다른 값으로 변경해야 한다.
+  - `req`: Node.js에서 제공하는 HTTP request 객체(http.IncomingMessage)
+  - `res`: Node.js에서 제공하는 HTTP response 객체(http.ServerResponse)
+
+> 
+
 ## 스타일 적용하기
+- 웹 개발 환경에서 Next.js에서 입힐 수 있는 스타일 방식
+
+### 전역 스타일
+- `_app.tsx` 사용(`import`로 불러오면 애플리케이션 전체에 영향을 미칠 수 있음)
+- 글로벌 스타일은 다른 페이지나 컴포넌트와 충돌할 수 있어 반드시 `_app.tsx`에서만 제한적으로 사용
+- CSS Reset
+- 브라우저에 기본으로 제공되고 있는 스타일을 초기화하는 등 애플리케이션 전체에 공통으로 적용하고 싶을 때 사용
+
+```tsx
+import type { AppProps } from 'next/app'
+
+// 적용하고 싶은 글로벌 스타일
+import '../styles.css'
+
+// 혹은 node_modules에서 바로 꺼내올 수 있음
+import 'normalize.css/normalize.css'
+
+export default function MyApp({ Component, pageProps }: AppProps){
+  return <Component {...pageProps} />
+}
+```
+
+### 컴포넌트 레벨 CSS
+- `[name].module.css`와 같은 명명 규칙만 준수하면 되며, 이 컴포넌트 레벨 CSS는 다른 컴포넌트의 클래스명과 겹쳐서 스타일에 충돌이 일어나지 ㅇ낳도록 고유한 클래스명을 제공(어느 파일에서든 추가 가능)
+```css
+.alert {
+  color: red;
+  font-size: 16px;
+}
+```
+
+```tsx
+import styles from './Button.module.css'
+
+export function Button() {
+  return (
+    <button type="button" className={styles.alert}>
+    경고!
+    </button>
+  )
+}
+```
+
+```html
+<head>
+  <!-- 생략 -->
+  <!-- 실제 프로덕션 빌드 시에는 스타일 태그가 아닌 별도 CSS 파일로 생성 -->
+  <style>
+    /* 컴포넌트 별 스타일 충돌을 방지하기 위한 Next.js의 최적화: Button_alert__62TGU */
+    .Button_alert__62TGU {
+      color: red;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<button type="button" class="Button_alert__62TGU">경고!</button>
+```
+
+### SCSS와 SASS
+- css를 사용할 때와 동일한 방식으로 사용 가능
+- `npm install --save-dev sass`와 같은 명령어로 별도의 설정 없이 바로 사용 가능
+- scss에서 제공하는 variable을 컴포넌트에서 사용하고 싶다면 export 문법을 사용하면 됨
+```tsx
+// primary 변수에 blue라는 값을 넣음
+$primary: blue;
+
+:export{
+  primary: $primary
+}
+
+import styles from "./Button.module.scss";
+
+export function Button() {
+  return (
+    {/* styles.primary 형태로 꺼내올 수 있음*/}
+    <span style={{color: styles.primary}}>
+      안녕하세요
+    </span>
+  );
+}
+```
+
+### CSS-in-JS
+- 자바스크립트 내부에 스타일시트를 삽입하는 방식
+- 편의성 이외의 성능 이점이 있는지는 의문(직관성)
+- 예) styled-jsx, styled-components, Emontion, Linaria 등
+- [참조](https://nextjjs.org/docs/basic-features/built-in-css-support#css-in-js)
+
+> styled-component Next.js에 추가하기
+- `_document.tsx` 추가 및 아래 코드 추가
+```tsx
+// _document.tsx
+import Document, {
+  Html,
+  Head,
+  Main,
+  NextScript,
+  DocumentContext,
+  DocumentInitialProps,
+} from 'next/document'
+import { ServerStyleSheet } from 'styled-components'
+
+export default function MyDocument(){
+  return (
+    <Html lang="ko">
+      <Head />
+      <body>
+        <Main />
+        <NextScript />
+      </body>
+    </Html>
+  )
+}
+
+MyDocument.getInitialProps = async (
+  ctx: DocumentContext,
+): Promise<DocumentInitialProps> => {
+  const sheet = new ServerStyleSheet
+  const originalRenderPage = cts.renderPage
+
+  console.log(sheet)
+
+  try {
+    ctx.renderPage = () => 
+    originalRenderPage({
+      enhanceApp: (App) => (props) => sheet.collectStyles(<App {...props}>),
+    })
+
+    const initialProps = await Document.getInitialProps(ctx)
+    return {
+      ...initialProps,
+      styles: (
+        <>
+          {initialProps.styles}
+          {sheet.getStyleElement()}
+        </>
+      ),
+    }
+  } finally {
+    sheet.seal()
+  }
+}
+```
+- `ServerStyleSheet`: styled-components의 스타일을 서버에서 초기화해 사용되는 클래스, 이 클래스를 인스턴스로 초기화하면 서버에서 styled-components가 작동하기 위한 다양한 기능을 가지고 있음
+- `originalRenderPage`: `ctx.renderPage`를 담아두고 있다. 즉, 기존 `ctx.renderPage`가 하는 작업에 추가적으로 styled-component 관련 작업을 하기 위해 별도 변수로 분리함
+- `ctx.renderPage`: 기존에 해야 하는 작업과 함께 enhanceApp, 즉 App을 렌더링할 때 추가로 수행하고 싶은 작업을 정의
+  - 여기서 추가로하는 작업: `sheet.collectStyles(<App {...props}>)`
+  - `sheet.collectStyles`는 `StyleSheetManager`라고 불리는 `Context.API`로 감싸는 역할(기존의 `<App/>` 위에 styled-components의 Context.API로 한 번 더 감싼 형태)
+- `const initialProps = await Document.getInitialProps(ctx)`: 기존의 `_document.tsx`가 렌더링을 수행할 때 필요한 `getInitialProps`를 생성하는 작업
+- 마지막 반환 문구: 기존에 기본적으로 내려주는 `props` + styled-components가 모아둔 자바스크립트 파일 내 스타일 반환(서버 사이드 최초 _document 렌더링 시 styled-components에서 수집한 스타일도 함께 내릴 수 있음)
+
+> styled-components in Server Side Rendering 
+1. 리액트 트리 내부에서 사용하고 있는 styled-components의 스타일을 모두 모음
+2. 이 각각의 스타일에 유니크한 클래스명을 부여해 스타일이 충돌하지 않게 클래스명과 스타일을 정리
+3. _document.tsx가 서버에서 렌더링할 때 React.Context 형태로 제공
+
+> 과정을 밟지 않는다면..
+- 스타일이 브라우저에서 뒤늦게 추가되어 FOUC(flash of unstyled content)라는 스타일이 입혀지지 않은 날거의 HTML을 잠시간 사용자에게 노출하게 됨
+
+> 바벨 대신 swc 추가하여 styled-components 사용
+- `next.config.js`에 다음과 같이 `compiler.styledComponents` 추가
+- styled-jsx, styled-components, Emotion도 swc와 함께 사용 가능
+```js
+/** @type {import('next').NextConfig} **/
+const nextConfig = {
+  reactStricMode: true,
+  swcMinify: true,
+  compiler: {
+    styledComponents: true,
+  }
+}
+
+module.exports = nextConfig
+```
+
+```tsx
+// 결과물
+import styled from 'styled-components'
+
+const ErrorButton = styled.button`
+  color: red;
+  font-size: 16px;
+`
+
+export function Button() {
+  return (
+    <>
+      <ErrorButton type="button">경고!</ErrorButton>
+    </>
+  )
+}
+// 생략
+
+<style data-styled="" data-styled-version="5.3.5">
+  .bXq0dA {
+    color: red;
+    font-size: 16px;
+  } /*!sc*/
+  data-styled.g1[id="Button__ErrorButton-sc-8cb2349-0]{
+    content: 'bXq0dA,';
+  } /*!sc*/
+  // 생략
+  <button type="button" class="Button__ErrorButton-sc-8cb2349-0 bXq0dA">
+    경고!
+  </button>
+  
+
+</style>
+```
 
 ## _app.tsx 응용하기
+- `const appProps = await App.getInitialProps(context)` 없으면 정상 실행 ❌
+```tsx
+import App, { AppContext } from 'next/app'
+import type { AppProps } from 'next/app'
 
+function MyApp({ Component, pageProps }: AppProps) {
+  return (
+    <>
+      <Component {...pageProps} />
+    </>
+  )
+}
+
+MyApp.getInitialProps = async = async (context: AppContext) => {
+  const appProps = await App.getInitialProps(context) // 없으면 정상 실행 ❌
+  return appProps
+}
+
+export default MyApp
+```
+
+> app.getInitialProps의 작동 방식
+- 다음을 `_app`에 추가한 후  Next.js 라우팅을 반복해보자
+```tsx
+MyApp.getInitialProps = async (context: AppContext) => {
+  const appProps = await App,getInitialProps(context)
+  const isServer = Boolean(context.ctx.req)
+  console.log(
+    `[${isServer ? '서버' : '클라이언트'}] ${context.router.pathname}에서 ${context.ctx?.req?.url}를 요청함.`,
+  )
+  return appProps
+}
+```
+- 실행 순서
+  1. 가장 먼저 자체 페이지에 getInitialProps가 있는 곳을 방문
+    - 로그: [서버] /test/GIP에서 /test/GIP를 요청
+  2. getServerSideProps가 있는 페이지를 `<Link>`를 이용해서 방문
+    - 로그: [서버] /test/GIP에서 /_next/data/XBY50vq6_LSP5vdU2XD5n/test/GSSP.json를 요청
+  3. 다시 1번 페이지를 `<Link>`를 이용하여 방문
+    - 로그: [클라이언트] /test/GIP에서 undefined를 요청
+  4. 다시 2번 페이지를 `<Link>`를 이용하여 방문
+    - 로그: [서버] /test/GIP에서 /_next/data/XBY50vq6_LSP5vdU2XD5n/test/GSSP.json를 요청
+
+> 최초 1번만 서버 사이드 렌더링 이후 클라이언트 라우팅을 통해 해당 페이지의 getServerSideProps 결과를 json 파일만을 요청하는 사실 활용하기
+- 웹서비스를 최초에 접근했을 때만 실행하고 싶은 내용을 app.getInitialProps 내부에 담아 둘 수 있음
+- 사용예시) userAgent 확인, 사용자 정보와 같은 애플리케이션 전역에서 걸쳐 사용해야 하는 정보 등을 호출하는 작업 수행 가능
+```tsx
+MyApp.getInitialProps = async (context: AppContext) => {
+  const appProps = await App.getInitialProps(context)
+  const {
+    ctx: { req },
+    router: { pathname },
+  } = context
+  // 웹사이트 최초 접근 조건문
+  if (
+    req &&                                        // req가 있으면 서버로 오는 요청
+    !req.url?.startsWith('/_next') &&             // '/_next'로 시작하지 않으면 클라이언트 렌더링으로 인해 발생한 getServerSideProps 요청이 아님을 알 수 있다
+    !['/500','/404','/_error'].includes(pathname) // 접근 요청하는 경로가 에러 페이지가 아니라면 정상적인 페이지 접근일 것이다.
+  ){
+    doSomethingOnlyOnce()
+  }
+
+  return appProps
+}
+```
+    
 ## next.config.js 살펴보기
+- Next.js 실행에 필요한 설정을 추가할 수 있는 파일
+- 실행과 사용자화에 필요한 다양한 설정을 추가할 수 있음
+
+> @type 구문
+- 자바스크립트 파일에 미리 선언돼 있는 설정 타입(NextConfig)의 도움을 받을 수 있음
+```js
+/**
+ * @type {import('next').NextConfig}
+ */
+const nextConfig = {
+  // 설정
+} 
+
+module.exports = nextConfig
+```
+
+> 실무에서 자주 사용하는 설정들
+- `basPath`: 기본적으로 애플리케이션을 실행하면 호스트 아래 `/`에 애플리케이션이 제공하는데, 이 설정을 통해 바꿀 수 있음(예 - basePath: "docs"/ localhost:3000/docs) 일종의 URL을 위한 접두사(prefix)
+  - `<Link>`나 `router.push()` 등에 `basePath`를 추가할 필요 없이 알아서 붙어 작동(Next.js가 제공하는 기능으로 `<a>`나 `window.location.push`등으로 라우팅을 하면 `basePath`가 붙어있어야함)
+- `swcMinify`: swc를 이용해 코드를 압축할지를 나타냄, 기본값은 `true`, 실험적인 기능
+  - Next.js 13 기준 `default : true`
+- `poweredByHeader`: Next.js는 응답 헤더에 X-Power-by: Next.js 정보를 제공하는데, `false` 선언시 이 정보가 사라짐, **기본적으로 보안 관련 솔루션에서는 powered-by 헤더를 취약점으로 분류함으로 `false` 권장**
+- `redirects`: 특정 주소를 다른 주소로 보내고 싶을 때 사용, 정규식도 사용 가능하므로 다양한 방식으로 응용가능
+  ```tsx
+  module.export = {
+    redirects() {
+      return [
+        {
+          // /tag/foo => /tag/foo/pages/1
+          source: '/tag/:tag',
+          destination: 'tags/:tag/pages/1',
+          parmanent: true,
+        },
+        {
+          // /tag/foo => /tag/foo/pages/1
+          source: '/tag/:tag/page/:no',
+          destination: 'tags/:tag/pages/:no',
+          parmanent: true,
+        },
+          // /tag/foo/pages/something => /tag/foo/pages/1
+          source: '/tag/:tag/page/((?!\\d).*)',
+          destination: 'tags/:tag/pages/:no',
+          parmanent: true,
+        {
+          
+        }
+      ]
+    }
+  }
+  ```
+- `reactStrictMode`: 리액트에서 제공하는 엄격 모드 설정 여부, 기본값-false, true로 설정해 다가올 리액트 업데이트에 대비하는 것을 추천
+- `assetPrefix`: 만약 next에서 빌드된 결과물을 동일한 호스트가 아닌 다른 CDN 등에 업로드하고자 한다면 이 옵션에 해당 CDN 주소를 명시하면 된다.
+  ```tsx
+  const isProduction = process.env.NODE_ENV  === "production"
+
+  module.export = {
+    assetPrefix: isProduction ? 'https://cdn.somewhere.com' : undefined,
+  }
+  ```
+  - 활성화 시 static 리소스들은 해당 주소에 있다고 가정하고 해당 주소로 요청
+  - CDN 리소스의 주소가 `https://cdn.somewhere.com/_next/static/chunks/webpack-3433a2a2d0cf6fb6.js` 와 같이 변경
 
 ## 정리
