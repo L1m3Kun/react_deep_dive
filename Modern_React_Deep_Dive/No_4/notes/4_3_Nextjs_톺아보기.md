@@ -965,3 +965,207 @@ module.exports = nextConfig
   - CDN 리소스의 주소가 `https://cdn.somewhere.com/_next/static/chunks/webpack-3433a2a2d0cf6fb6.js` 와 같이 변경
 
 ## 정리
+
+### Next.js
+- 리액트 기반 서버 사이드 렌더링 프레임워크
+- `react-page`에서 영감을 받음
+
+> Next.js 선택이 합리적인 이유
+- 다른 프레임워크에 비해 사용자 층이 많음
+- 모기업인 Vercel의 전폭적인 지원을 받을 수 있음
+- SWR, SWC, Turbopack, Svelte 등 웹 생태계 전반에 영향력 있는 프로젝트를 계속해서 개발하거나 인수
+- 꾸준히 새로운 기능을 추가해 릴리스 중
+
+### Next.js 파일 살펴보기
+
+> 시작(`create-next-app`)
+
+```bash
+npx create-next-app@latest --ts
+```
+
+> Next.js에서 제공하는 예약어로 관리하는 페이지
+
+|파일명|역할|활용|비고|
+|:--------:|:-----------------------:|:------------------------:|:------------:|
+|[`package.json`](../examples/next-example/package.json)|프로젝트 구동에 필요한 모든 명령어 및 의존성이 포함|프로젝트의 대략적인 모습을 확인하는데 유용|npm 프로젝트를 볼땐 제일 먼저보기|
+|[`next.config.js`](../examples/next-example/next.config.js)|Next.js 프로젝트의 환경 설정 담당|[자세한 설정](https://github.com/vercel/next.js/blob/canary/packages/next/src/server/config-shared.ts)||
+|[`pages/_app.tsx`](../examples/next-example/src/pages/_app.tsx)|애플리케이션 페이지 전체 초기화하는 곳|ㅁ에러 바운더리를 사용해 애플리케이션 전역에서 발생하는 에러 처리<br/>ㅁ`reset.css` 같은 전역 CSS 선언<br/>ㅁ모든 페이지에 공통으로 사용 또는 제공해야 하는 데이터 제공|라우팅에 따라 렌더링 위치 다름|
+|[`pages/_document.tsx`](../examples/next-example/src/pages/_document.tsx)|ㅁ몇 가지 시나리오에서 유용한 도움을 주는 파일<br/>ㅁ애플리케이션의 HTML 초기화|ㅁ`<html>`이나 `<body>`에 DOM 속성을 추가<br/>ㅁNext.js로 만드는 웹사이트의 뼈대가 되는 HTML 설정과 관련된 코드를 추가하는 곳(반드시 서버에서만 렌더링)|ㅁ없어도 실행에 지장 없음<br/>ㅁ무조건 서버에서 실행|
+|[`pages/_error.tsx`](../examples/next-example/src/pages/_error.tsx)|Next.js 프로젝트 전역 에러 처리 파일||ㅁ없어도 실행에 지장 없음<br/>|
+|[`pages/404.tsx`](../examples/next-example/src/pages/404.tsx)|`404`페이지 정의할 수 있는 파일(커스텀 가능)||없으면 Next.js 기본 404 페이지 제공|
+|[`pages/500.tsx`](../examples/next-example/src/pages/500.tsx)|서버에서 발생하는 에러 핸들링 페이지|`_error.tsx`와 `500.tsx`가 모두 있다면 `500.tsx`가 우선적으로 실행(없으면 기본 페이지 제공, 커스텀 하는 파일)||
+
+
+> 개발자가 자유롭게 명명할 수 있는 페이지
+
+-예제 프로젝트의 구성 정리
+    - `/pages/index.tsx` : 웹사이트의 루트, `localhost:3000`과 같은 루트 주소를 의미
+    - `/pages/hello.tsx` : `/pages`가 생략되고, 파일명이 주소가 된다. (`localhost:3000/hello`로 접근 가능)
+    - `/pages/hello/world.tsx` : 디렉터리 깊이만큼 주소를 설정할 수 있음(`localhost:3000/hello/world`로 접근 가능), `/pages/hello/index.tsx`은 ``/pages/hello.tsx`와 같은 주소
+    - `/pages/hello/[greeting].tsx` : `[]`의 의미는 여기에 어떠한 문자도 올 수 있다라는 뜻
+        - 서버 사이드에서 greeting이라는 변수에 사용자가 접속한 주소명이 오게 된다.
+        - `localhost:3000/hello/1`, `localhost:3000/hello/greeting`모두 유효하며 `localhost:3000/hello/[greeting].tsx`로 접근, 만약 이미 정의된 주소가 있다면 정의해 둔 주소가 우선순위를 갖는다.
+    - `/pages/hi/[...props].tsx` : `/hi`를 제외한 `/hi` 모든 주소가 여기로 접근, `[...props]`값은 `props`라는 변수에 배열로 오게 된다. 
+    - `/pages/api/hello.ts`: 서버의 API를 정의하는 폴더. 기본적인 디렉터리에 따른 라우팅 구조는 페이지와 동일하되, `/pages/api`가 `/api`라는 접두사가 붙는다는 점만 다름, `/pages/api/hello`는 다른 페이지 파일과 다르게 HTML요청이 아닌 단순히 서버 요청을 주고 받음
+
+  
+### 서버 라우팅과 클라이언트 라우팅
+- Next.js는 서버 사이드 렌더링을 수행하지만 동시에 싱글 페이지 애플리케이션과 같이 클라이언트 라우팅 또한 수행(모두 사용)
+
+> 서버 라우팅(`<a/>` 사용)
+
+- 네트워크에는 `hello`라는 이름의 문서를 요청, 이후에는 `webpack`, `framework`, `main`, `hello` 등 페이지를 만드는 데 필요한 모든 리소스를 처음부터 가져옴
+- `console.log()`도 서버와 클라이언트에 각각 동시에 기록
+- **서버에서 렌더링 수행 후 클라이언트에서 `hydrate` 과정에서 한 번 더 실행**
+
+
+
+> 클라이언트 라우팅(`Link 태그 사용(next/Link에서 가져와서 사용)`)
+
+- `hello.js`만 요청
+- `hello.js` : `hello` 페이지를 위한 자바스크립트, 클라이언트에서 필요한 자바스크립트만 불러온 뒤 라우팅하는 클라이언트 라우팅/렌더링 방식으로 동작
+
+
+> Next.js 장점 적극 살리기 위한 규칙
+- `<a>` 대신 `<Link>`를 사용
+- `window.location.push` 대신 `router.push`를 사용 
+
+### Data Fetching
+- `pages/`의 폴더에 있는 라우팅이 되는 파일에서만 사용 가능
+- 예약어로 지정되어 반드시 정해진 함수명으로 `export`를 사용해 함수를 파일 외부로 내보내야 함
+- 활용 시, 서버에서 미리 필요한 페이지를 제공하거나 해당 페이지에 요청이 있을 때마다 서버에서 데이터를 조회해서 미리 페이지를 만들어서 제공할 수 있음
+
+> 리액트의 서버 사이드 렌더링 과정
+1. 서버에서 fetch 등으로 렌더링에 필요한 정보를 가져옴
+2. 1번에서 가져온 정보를 기반으로 HTML을 완성
+3. 2번의 정보를 클라이언트(브라우저)에 제공
+4. 3번의 정볼르 바탕으로 클라이언트에서 `hydrate`작업을 수행(DOM에 리액트 라이프 사이클과 이벤트 핸드러를 추가하는 작업)
+5. 4번 작업인 `hydrate`로 만든 리액트 컴포넌트 트리와 서버에서 만든 HTML이 다르다면 불일치 에러 발생
+6. 5번 작업도 1번과 마찬가지로 fetch 등을 이용해 정보를 가져와야 함
+
+> 사용자와 관계없이 정적으로 결정된 페이즈를 보여주고 싶을 때 사용하는 함수들
+- `getStaticPaths`: 페이지 제한(getStaticProps와 함께 사용)
+- `getStaticProps`: 페이지 데이터 요청을 수행해 props로 반환(getStaticPaths와 함께 사용)
+- `POST`: 페이지 렌더링
+- 두 함수를 사용하면 빌드 시점에 미리 데이터를 불러온 다음에 정적인 HTML 페이지를 만들 수 있음
+
+```tsx
+import { GetStaticPaths, GetStaticProps } from 'next'
+
+export const getStaticPaths: GetStaticPaths = async () => {
+    return {
+        paths: [{ params: {id: '1' } }, { params: { id: '2' } }],
+        fallback: false,
+    }
+}
+
+export const getStaticProps: GetStaticProps = async ({ params }) => {
+    const { id } = params
+
+    const post = await fetchPost(id)
+
+    return {
+        props: { post },
+    }
+}
+
+export default function Post({ post }: { post: Post }){
+    // post로 페이지를 렌더링한다.
+}
+```
+
+> getSeverSideProps
+- **서버에서 실행되는 함수**이며 해당 함수가 있다면 **무조건 페이지 진입 전에 이 함수를 실행**(컴포넌트 내 DOM에 추가하는 이벤트 핸들러 함수와 `useEffect`와 같은 몇가지를 제외하고는 서버에서 실행될 수 있다.)
+
+- 제약
+  -`window`, `document`와 같이 브라우저에서만 접근할 수 있는 객체에는 접근할 수 없다
+  - API 호출 시 `/api/some/path`와 같이 `protocol`과 `domain` 없이 fetch요청을 할 수 없다. 브라우저와 다르게 서버는 자신의 호스트를 유추할 수 없기 때문에 반드시 완전한 주소를 제공해야 `fetch`가 가능하다.
+  - 여기서 발생한 에러는 `500.tsx`와 같이 미리 정의해 둔 에러 페이지로 리다이렉트된다.
+  - 꼭 최초에 보여줘야하는 데이터가 아니라면 `getServerSideProps`보다는 클라이언트에서 호출하는 것이 유리하며, `getServerSideProps` 내부에서 실행하는 내용은 최대한 간결하게 작성하는 것이 좋다.
+
+> getInitialProps
+- `getStaticProps`나 `getServerSideProps`가 나오기 전, 사용할 수 있는 유일한 페이지 데이터 불러오기 수단
+
+> `getInitialProps`를 이용한 예시
+```jsx
+// 함수 컴포넌트
+import Link from 'next/link'
+
+export default function Todo({ todo }) {
+  return (
+    <>
+      <h1>{todo.title}</h1>
+      <ul>
+        <li>
+          <Link href="/todo/1">1번</Link>
+        </li>
+
+        <li>
+          <Link href="/todo/2">2번</Link>
+        </li>
+
+        <li>
+          <Link href="/todo/3">3번</Link>
+        </li>
+      </ul>
+    </>
+  )
+}
+
+Todo.getInitialProps = async (ctx) => {
+  const {
+    query: { id= "" },
+  } = ctx
+  const response = await fetch(
+    `https://jsonplaceholder.typicode.com/todos/${id}`,
+  )
+  const result = await response.json()
+  console.log('fetch Complete!')
+  return { todo: result }
+}
+
+// 클래스 컴포넌트
+export default class Todo extends React.Component {
+  static async getInitialProps() {
+    const {
+      query: { id: "" },
+    } = ctx
+    const response = await fetch(
+      `https://jsonplaceholder.typicode.com/todos/${id}`,
+    )
+    const result = await response.json()
+    console.log('fetch Complete!')
+    return {todo: result}
+  }
+
+  render(){
+    // ...
+  }
+}
+```
+
+### 스타일 적용
+> 전역 스타일
+- `_app.tsx` 사용(`import`로 불러오면 애플리케이션 전체에 영향을 미칠 수 있음)
+- 글로벌 스타일은 다른 페이지나 컴포넌트와 충돌할 수 있어 반드시 `_app.tsx`에서만 제한적으로 사용
+
+> 컴포넌트 레벨 CSS
+- `[name].module.css`와 같은 명명 규칙만 준수하면 되며, 이 컴포넌트 레벨 CSS는 다른 컴포넌트의 클래스명과 겹쳐서 스타일에 충돌이 일어나지 ㅇ낳도록 고유한 클래스명을 제공(어느 파일에서든 추가 가능)
+
+> SCSS와 SASS
+- css를 사용할 때와 동일한 방식으로 사용 가능
+- `npm install --save-dev sass`와 같은 명령어로 별도의 설정 없이 바로 사용 가능
+- scss에서 제공하는 variable을 컴포넌트에서 사용하고 싶다면 export 문법을 사용하면 됨
+
+> CSS-in-JS
+- 자바스크립트 내부에 스타일시트를 삽입하는 방식
+- 편의성 이외의 성능 이점이 있는지는 의문(직관성)
+- 예) styled-jsx, styled-components, Emontion, Linaria 등
+- [참조](https://nextjjs.org/docs/basic-features/built-in-css-support#css-in-js)
+
+> styled-components in Server Side Rendering 
+1. 리액트 트리 내부에서 사용하고 있는 styled-components의 스타일을 모두 모음
+2. 이 각각의 스타일에 유니크한 클래스명을 부여해 스타일이 충돌하지 않게 클래스명과 스타일을 정리
+3. _document.tsx가 서버에서 렌더링할 때 React.Context 형태로 제공
+
